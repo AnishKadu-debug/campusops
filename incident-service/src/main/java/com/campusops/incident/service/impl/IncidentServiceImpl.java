@@ -1,0 +1,75 @@
+package com.campusops.incident.service.impl;
+
+import com.campusops.incident.dto.request.CreateIncidentRequest;
+import com.campusops.incident.dto.request.UpdateIncidentRequest;
+import com.campusops.incident.dto.response.IncidentResponse;
+import com.campusops.incident.entity.Incident;
+import com.campusops.incident.entity.IncidentStatus;
+import com.campusops.incident.exception.ResourceNotFoundException;
+import com.campusops.incident.repository.IncidentRepository;
+import com.campusops.incident.service.IncidentService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class IncidentServiceImpl implements IncidentService {
+
+    private final IncidentRepository incidentRepository;
+
+    @Override
+    @Transactional
+    public IncidentResponse createIncident(CreateIncidentRequest request) {
+        Incident incident = Incident.builder()
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .priority(request.getPriority())
+                .assetId(request.getAssetId())
+                .reporterId(request.getReporterId())
+                .status(IncidentStatus.OPEN)
+                .active(true)
+                .build();
+
+        Incident saved = incidentRepository.save(incident);
+        return IncidentResponse.fromEntity(saved);
+    }
+
+    @Override
+    public IncidentResponse getIncidentById(Long id) {
+        Incident incident = incidentRepository.findByIdAndActiveTrue(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+        return IncidentResponse.fromEntity(incident);
+    }
+
+    @Override
+    public List<IncidentResponse> getAllIncidents(IncidentStatus status) {
+        List<Incident> incidents;
+        if (status != null) {
+            incidents = incidentRepository.findByActiveTrueAndStatus(status);
+        } else {
+            incidents = incidentRepository.findByActiveTrue();
+        }
+        return incidents.stream()
+                .map(IncidentResponse::fromEntity)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public IncidentResponse updateIncident(Long id, UpdateIncidentRequest request) {
+        Incident incident = incidentRepository.findByIdAndActiveTrue(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+
+        incident.setTitle(request.getTitle());
+        incident.setDescription(request.getDescription());
+        incident.setPriority(request.getPriority());
+        incident.setAssetId(request.getAssetId());
+
+        Incident updated = incidentRepository.save(incident);
+        return IncidentResponse.fromEntity(updated);
+    }
+}
