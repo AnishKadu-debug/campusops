@@ -2,6 +2,7 @@ package com.campusops.incident.controller;
 
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
+import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
 import com.campusops.incident.dto.response.IncidentResponse;
 import com.campusops.incident.entity.IncidentPriority;
 import com.campusops.incident.entity.IncidentStatus;
@@ -30,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -204,4 +206,69 @@ class IncidentControllerTest {
                 .andExpect(jsonPath("$.validationErrors.description").exists())
                 .andExpect(jsonPath("$.validationErrors.priority").exists());
     }
+
+    @Test
+    @DisplayName("PATCH /api/v1/incidents/{id}/status with valid status transition should return 200 OK")
+    void updateIncidentStatus_withValidPayload_shouldReturn200() throws Exception {
+        UpdateIncidentStatusRequest request = UpdateIncidentStatusRequest.builder()
+                .status(IncidentStatus.ASSIGNED)
+                .build();
+
+        IncidentResponse updatedResponse = IncidentResponse.builder()
+                .id(1L)
+                .title("Wi-Fi down in Library")
+                .description("No access point connection on 2nd floor")
+                .status(IncidentStatus.ASSIGNED)
+                .priority(IncidentPriority.HIGH)
+                .assetId("ROUTER-LIB-02")
+                .reporterId("student-99")
+                .active(true)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(incidentService.updateIncidentStatus(eq(1L), any(UpdateIncidentStatusRequest.class)))
+                .thenReturn(updatedResponse);
+
+        mockMvc.perform(patch("/api/v1/incidents/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(1)))
+                .andExpect(jsonPath("$.status", is("ASSIGNED")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/incidents/{id}/status with missing status should return 400 Bad Request")
+    void updateIncidentStatus_withNullStatus_shouldReturn400() throws Exception {
+        UpdateIncidentStatusRequest invalidRequest = UpdateIncidentStatusRequest.builder()
+                .status(null)
+                .build();
+
+        mockMvc.perform(patch("/api/v1/incidents/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.validationErrors.status").exists());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/incidents/{id}/status with invalid transition should return 400 Bad Request")
+    void updateIncidentStatus_withInvalidTransition_shouldReturn400() throws Exception {
+        UpdateIncidentStatusRequest request = UpdateIncidentStatusRequest.builder()
+                .status(IncidentStatus.CLOSED)
+                .build();
+
+        when(incidentService.updateIncidentStatus(eq(1L), any(UpdateIncidentStatusRequest.class)))
+                .thenThrow(new IllegalStateException("Invalid status transition from OPEN to CLOSED"));
+
+        mockMvc.perform(patch("/api/v1/incidents/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.message", is("Invalid status transition from OPEN to CLOSED")));
+    }
 }
+

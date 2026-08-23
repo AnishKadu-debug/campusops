@@ -68,4 +68,47 @@ class IncidentDomainTest {
                 IncidentPriority.CRITICAL
         );
     }
+
+    @Test
+    @DisplayName("IncidentStatus state machine should allow only valid sequential transitions")
+    void statusTransitions_validSequence() {
+        assertThat(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.ASSIGNED)).isTrue();
+        assertThat(IncidentStatus.ASSIGNED.canTransitionTo(IncidentStatus.IN_PROGRESS)).isTrue();
+        assertThat(IncidentStatus.IN_PROGRESS.canTransitionTo(IncidentStatus.RESOLVED)).isTrue();
+        assertThat(IncidentStatus.RESOLVED.canTransitionTo(IncidentStatus.CLOSED)).isTrue();
+    }
+
+    @Test
+    @DisplayName("IncidentStatus state machine should reject invalid transitions")
+    void statusTransitions_invalidTransitions() {
+        // OPEN invalid transitions
+        assertThat(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.IN_PROGRESS)).isFalse();
+        assertThat(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.RESOLVED)).isFalse();
+        assertThat(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.CLOSED)).isFalse();
+        assertThat(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.OPEN)).isFalse();
+        assertThat(IncidentStatus.OPEN.canTransitionTo(null)).isFalse();
+
+        // ASSIGNED invalid transitions
+        assertThat(IncidentStatus.ASSIGNED.canTransitionTo(IncidentStatus.OPEN)).isFalse();
+        assertThat(IncidentStatus.ASSIGNED.canTransitionTo(IncidentStatus.RESOLVED)).isFalse();
+        assertThat(IncidentStatus.ASSIGNED.canTransitionTo(IncidentStatus.CLOSED)).isFalse();
+
+        // IN_PROGRESS invalid transitions
+        assertThat(IncidentStatus.IN_PROGRESS.canTransitionTo(IncidentStatus.OPEN)).isFalse();
+        assertThat(IncidentStatus.IN_PROGRESS.canTransitionTo(IncidentStatus.ASSIGNED)).isFalse();
+        assertThat(IncidentStatus.IN_PROGRESS.canTransitionTo(IncidentStatus.CLOSED)).isFalse();
+
+        // RESOLVED invalid transitions
+        assertThat(IncidentStatus.RESOLVED.canTransitionTo(IncidentStatus.OPEN)).isFalse();
+        assertThat(IncidentStatus.RESOLVED.canTransitionTo(IncidentStatus.ASSIGNED)).isFalse();
+        assertThat(IncidentStatus.RESOLVED.canTransitionTo(IncidentStatus.IN_PROGRESS)).isFalse();
+
+        // CLOSED has no valid transitions
+        assertThat(IncidentStatus.CLOSED.canTransitionTo(IncidentStatus.OPEN)).isFalse();
+        assertThat(IncidentStatus.CLOSED.canTransitionTo(IncidentStatus.ASSIGNED)).isFalse();
+        assertThat(IncidentStatus.CLOSED.canTransitionTo(IncidentStatus.IN_PROGRESS)).isFalse();
+        assertThat(IncidentStatus.CLOSED.canTransitionTo(IncidentStatus.RESOLVED)).isFalse();
+        assertThat(IncidentStatus.CLOSED.canTransitionTo(IncidentStatus.CLOSED)).isFalse();
+    }
 }
+

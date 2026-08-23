@@ -2,6 +2,7 @@ package com.campusops.incident.service.impl;
 
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
+import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
 import com.campusops.incident.dto.response.IncidentResponse;
 import com.campusops.incident.entity.Incident;
 import com.campusops.incident.entity.IncidentStatus;
@@ -72,4 +73,25 @@ public class IncidentServiceImpl implements IncidentService {
         Incident updated = incidentRepository.save(incident);
         return IncidentResponse.fromEntity(updated);
     }
+
+    @Override
+    @Transactional
+    public IncidentResponse updateIncidentStatus(Long id, UpdateIncidentStatusRequest request) {
+        Incident incident = incidentRepository.findByIdAndActiveTrue(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+
+        IncidentStatus currentStatus = incident.getStatus();
+        IncidentStatus newStatus = request.getStatus();
+
+        if (!currentStatus.canTransitionTo(newStatus)) {
+            throw new IllegalStateException(
+                    String.format("Invalid status transition from %s to %s", currentStatus, newStatus)
+            );
+        }
+
+        incident.setStatus(newStatus);
+        Incident updated = incidentRepository.save(incident);
+        return IncidentResponse.fromEntity(updated);
+    }
 }
+

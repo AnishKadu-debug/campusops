@@ -2,6 +2,7 @@ package com.campusops.incident.service;
 
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
+import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
 import com.campusops.incident.dto.response.IncidentResponse;
 import com.campusops.incident.entity.Incident;
 import com.campusops.incident.entity.IncidentPriority;
@@ -184,4 +185,51 @@ class IncidentServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Incident not found with id: 999");
     }
+
+    @Test
+    @DisplayName("updateIncidentStatus should successfully transition when transition is valid")
+    void updateIncidentStatus_validTransition_shouldUpdateStatus() {
+        UpdateIncidentStatusRequest request = UpdateIncidentStatusRequest.builder()
+                .status(IncidentStatus.ASSIGNED)
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        IncidentResponse response = incidentService.updateIncidentStatus(1L, request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(IncidentStatus.ASSIGNED);
+        verify(incidentRepository).save(sampleIncident);
+        assertThat(sampleIncident.getStatus()).isEqualTo(IncidentStatus.ASSIGNED);
+    }
+
+    @Test
+    @DisplayName("updateIncidentStatus should throw IllegalStateException when transition is invalid")
+    void updateIncidentStatus_invalidTransition_shouldThrowIllegalStateException() {
+        UpdateIncidentStatusRequest request = UpdateIncidentStatusRequest.builder()
+                .status(IncidentStatus.CLOSED) // OPEN -> CLOSED is invalid
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus(1L, request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid status transition from OPEN to CLOSED");
+    }
+
+    @Test
+    @DisplayName("updateIncidentStatus should throw ResourceNotFoundException when incident does not exist")
+    void updateIncidentStatus_notFound_shouldThrowResourceNotFoundException() {
+        UpdateIncidentStatusRequest request = UpdateIncidentStatusRequest.builder()
+                .status(IncidentStatus.ASSIGNED)
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus(999L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Incident not found with id: 999");
+    }
 }
+

@@ -2,6 +2,7 @@ package com.campusops.incident.controller;
 
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
+import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
 import com.campusops.incident.dto.response.IncidentResponse;
 import com.campusops.incident.entity.IncidentStatus;
 import com.campusops.incident.service.IncidentService;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -53,4 +55,13 @@ public class IncidentController {
         IncidentResponse response = incidentService.updateIncident(id, request);
         return ResponseEntity.ok(response);
     }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<IncidentResponse> updateIncidentStatus(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody UpdateIncidentStatusRequest request) {
+        IncidentResponse response = incidentService.updateIncidentStatus(id, request);
+        return ResponseEntity.ok(response);
+    }
 }
+
