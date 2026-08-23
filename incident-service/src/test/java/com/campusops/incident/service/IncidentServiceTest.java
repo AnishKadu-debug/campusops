@@ -1,5 +1,7 @@
 package com.campusops.incident.service;
 
+import com.campusops.incident.client.AssetServiceClient;
+import com.campusops.incident.client.dto.AssetResponseDto;
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
@@ -35,6 +37,9 @@ class IncidentServiceTest {
     @Mock
     private IncidentRepository incidentRepository;
 
+    @Mock
+    private AssetServiceClient assetServiceClient;
+
     @InjectMocks
     private IncidentServiceImpl incidentService;
 
@@ -57,7 +62,7 @@ class IncidentServiceTest {
     }
 
     @Test
-    @DisplayName("createIncident should set default status OPEN and active true")
+    @DisplayName("createIncident should validate asset, set default status OPEN and active true")
     void createIncident_shouldSetDefaultStatusAndActive() {
         CreateIncidentRequest request = CreateIncidentRequest.builder()
                 .title("Broken AC")
@@ -66,6 +71,9 @@ class IncidentServiceTest {
                 .assetId("AC-204")
                 .reporterId("faculty-456")
                 .build();
+
+        when(assetServiceClient.getAssetById("AC-204"))
+                .thenReturn(Optional.of(AssetResponseDto.builder().id("AC-204").name("AC Unit").build()));
 
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> {
             Incident incident = invocation.getArgument(0);
@@ -92,6 +100,24 @@ class IncidentServiceTest {
         Incident savedIncident = captor.getValue();
         assertThat(savedIncident.getStatus()).isEqualTo(IncidentStatus.OPEN);
         assertThat(savedIncident.isActive()).isTrue();
+    }
+
+    @Test
+    @DisplayName("createIncident with invalid/non-existent asset should throw IllegalArgumentException")
+    void createIncident_withInvalidAsset_shouldThrowException() {
+        CreateIncidentRequest request = CreateIncidentRequest.builder()
+                .title("Broken AC")
+                .description("AC unit leaking water")
+                .priority(IncidentPriority.MEDIUM)
+                .assetId("NON-EXISTENT-ASSET")
+                .reporterId("faculty-456")
+                .build();
+
+        when(assetServiceClient.getAssetById("NON-EXISTENT-ASSET")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> incidentService.createIncident(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Asset not found with id: NON-EXISTENT-ASSET");
     }
 
     @Test
@@ -154,6 +180,8 @@ class IncidentServiceTest {
                 .build();
 
         when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        when(assetServiceClient.getAssetById("PROJ-LAB-3-V2"))
+                .thenReturn(Optional.of(AssetResponseDto.builder().id("PROJ-LAB-3-V2").name("Projector V2").build()));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         IncidentResponse response = incidentService.updateIncident(1L, updateRequest);

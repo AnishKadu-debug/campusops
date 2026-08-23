@@ -1,5 +1,7 @@
 package com.campusops.incident.service.impl;
 
+import com.campusops.incident.client.AssetServiceClient;
+import com.campusops.incident.client.dto.AssetResponseDto;
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -21,10 +24,18 @@ import java.util.List;
 public class IncidentServiceImpl implements IncidentService {
 
     private final IncidentRepository incidentRepository;
+    private final AssetServiceClient assetServiceClient;
 
     @Override
     @Transactional
     public IncidentResponse createIncident(CreateIncidentRequest request) {
+        if (request.getAssetId() != null && !request.getAssetId().isBlank()) {
+            Optional<AssetResponseDto> asset = assetServiceClient.getAssetById(request.getAssetId());
+            if (asset.isEmpty()) {
+                throw new IllegalArgumentException("Asset not found with id: " + request.getAssetId());
+            }
+        }
+
         Incident incident = Incident.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())
@@ -65,6 +76,13 @@ public class IncidentServiceImpl implements IncidentService {
         Incident incident = incidentRepository.findByIdAndActiveTrue(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
 
+        if (request.getAssetId() != null && !request.getAssetId().isBlank()) {
+            Optional<AssetResponseDto> asset = assetServiceClient.getAssetById(request.getAssetId());
+            if (asset.isEmpty()) {
+                throw new IllegalArgumentException("Asset not found with id: " + request.getAssetId());
+            }
+        }
+
         incident.setTitle(request.getTitle());
         incident.setDescription(request.getDescription());
         incident.setPriority(request.getPriority());
@@ -73,6 +91,7 @@ public class IncidentServiceImpl implements IncidentService {
         Incident updated = incidentRepository.save(incident);
         return IncidentResponse.fromEntity(updated);
     }
+
 
     @Override
     @Transactional
