@@ -11,8 +11,11 @@ import com.campusops.incident.entity.Incident;
 import com.campusops.incident.entity.IncidentStatus;
 import com.campusops.incident.event.IncidentAssignedEvent;
 import com.campusops.incident.event.IncidentCreatedEvent;
+import com.campusops.incident.exception.ForbiddenException;
 import com.campusops.incident.exception.ResourceNotFoundException;
 import com.campusops.incident.repository.IncidentRepository;
+import com.campusops.incident.security.CurrentUser;
+import com.campusops.incident.security.UserRole;
 import com.campusops.incident.service.IncidentService;
 import com.campusops.incident.service.SlaCalculator;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +40,11 @@ public class IncidentServiceImpl implements IncidentService {
 
     @Override
     @Transactional
-    public IncidentResponse createIncident(CreateIncidentRequest request) {
+    public IncidentResponse createIncident(CreateIncidentRequest request, CurrentUser currentUser) {
+        if (currentUser.role() != UserRole.STUDENT) {
+            throw new ForbiddenException("Only STUDENT users can report incidents");
+        }
+
         if (request.getAssetId() != null && !request.getAssetId().isBlank()) {
             Optional<AssetResponseDto> asset = assetServiceClient.getAssetById(request.getAssetId());
             if (asset.isEmpty()) {
@@ -45,12 +52,13 @@ public class IncidentServiceImpl implements IncidentService {
             }
         }
 
+        // Caller identity always comes from the JWT subject - never from the request body
         Incident incident = Incident.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())
                 .priority(request.getPriority())
                 .assetId(request.getAssetId())
-                .reporterId(request.getReporterId())
+                .reporterId(currentUser.subject())
                 .status(IncidentStatus.OPEN)
                 .slaDeadline(slaCalculator.calculateDeadline(request.getPriority()))
                 .active(true)
@@ -72,19 +80,25 @@ public class IncidentServiceImpl implements IncidentService {
     }
 
     @Override
-    public IncidentResponse getIncidentById(Long id) {
+    public IncidentResponse getIncidentById(Long id, CurrentUser currentUser) {
         Incident incident = incidentRepository.findByIdAndActiveTrue(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+        authorizeReadAccess(incident, currentUser);
         return IncidentResponse.fromEntity(incident);
     }
 
     @Override
-    public List<IncidentResponse> getAllIncidents(IncidentStatus status) {
+    public List<IncidentResponse> getAllIncidents(IncidentStatus status, CurrentUser currentUser) {
         List<Incident> incidents;
-        if (status != null) {
-            incidents = incidentRepository.findByActiveTrueAndStatus(status);
-        } else {
-            incidents = incidentRepository.findByActiveTrue();
+        switch (currentUser.role()) {
+            case MANAGER -> incidents = status != null
+                    ? incidentRepository.findByActiveTrueAndStatus(status)
+                    : incidentRepository.findByActiveTrue();
+            case STUDENT -> incidents = filterByStatus(
+                    incidentRepository.findByReporterIdAndActiveTrue(currentUser.subject()), status);
+            case TECHNICIAN -> incidents = filterByStatus(
+                    incidentRepository.findByAssigneeIdAndActiveTrue(currentUser.subject()), status);
+            default -> throw new ForbiddenException("Access denied");
         }
         return incidents.stream()
                 .map(IncidentResponse::fromEntity)
@@ -93,9 +107,10 @@ public class IncidentServiceImpl implements IncidentService {
 
     @Override
     @Transactional
-    public IncidentResponse updateIncident(Long id, UpdateIncidentRequest request) {
+    public IncidentResponse updateIncident(Long id, UpdateIncidentRequest request, CurrentUser currentUser) {
         Incident incident = incidentRepository.findByIdAndActiveTrue(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+        authorizeUpdateAccess(incident, currentUser);
 
         if (request.getAssetId() != null && !request.getAssetId().isBlank()) {
             Optional<AssetResponseDto> asset = assetServiceClient.getAssetById(request.getAssetId());
@@ -119,12 +134,12 @@ public class IncidentServiceImpl implements IncidentService {
         return IncidentResponse.fromEntity(updated);
     }
 
-
     @Override
     @Transactional
-    public IncidentResponse updateIncidentStatus(Long id, UpdateIncidentStatusRequest request) {
+    public IncidentResponse updateIncidentStatus(Long id, UpdateIncidentStatusRequest request, CurrentUser currentUser) {
         Incident incident = incidentRepository.findByIdAndActiveTrue(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found with id: " + id));
+        authorizeProgressAccess(incident, currentUser);
 
         IncidentStatus currentStatus = incident.getStatus();
         IncidentStatus newStatus = request.getStatus();
@@ -166,5 +181,53 @@ public class IncidentServiceImpl implements IncidentService {
 
         return IncidentResponse.fromEntity(updated);
     }
-}
 
+    private void authorizeReadAccess(Incident incident, CurrentUser currentUser) {
+        switch (currentUser.role()) {
+            case MANAGER -> {
+            }
+            case STUDENT -> requireOwnership(
+                    currentUser.subject().equals(incident.getReporterId()),
+                    "Students may only view their own incidents");
+            case TECHNICIAN -> requireOwnership(
+                    currentUser.subject().equals(incident.getAssigneeId()),
+                    "Technicians may only view incidents assigned to them");
+        }
+    }
+
+    private void authorizeUpdateAccess(Incident incident, CurrentUser currentUser) {
+        switch (currentUser.role()) {
+            case MANAGER -> {
+            }
+            case STUDENT -> requireOwnership(
+                    currentUser.subject().equals(incident.getReporterId()),
+                    "Students may only update their own incidents");
+            case TECHNICIAN -> throw new ForbiddenException("Technicians may not update incident details");
+        }
+    }
+
+    private void authorizeProgressAccess(Incident incident, CurrentUser currentUser) {
+        switch (currentUser.role()) {
+            case MANAGER -> {
+            }
+            case STUDENT -> requireOwnership(
+                    currentUser.subject().equals(incident.getReporterId()),
+                    "Students may only progress their own incidents");
+            case TECHNICIAN -> requireOwnership(
+                    currentUser.subject().equals(incident.getAssigneeId()),
+                    "Technicians may only progress incidents assigned to them");
+        }
+    }
+
+    private void requireOwnership(boolean allowed, String message) {
+        if (!allowed) {
+            throw new ForbiddenException(message);
+        }
+    }
+
+    private List<Incident> filterByStatus(List<Incident> incidents, IncidentStatus status) {
+        return status == null
+                ? incidents
+                : incidents.stream().filter(incident -> incident.getStatus() == status).toList();
+    }
+}

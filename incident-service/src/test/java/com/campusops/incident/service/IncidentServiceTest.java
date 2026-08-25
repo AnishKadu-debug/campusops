@@ -14,6 +14,8 @@ import com.campusops.incident.event.IncidentAssignedEvent;
 import com.campusops.incident.event.IncidentCreatedEvent;
 import com.campusops.incident.exception.ResourceNotFoundException;
 import com.campusops.incident.repository.IncidentRepository;
+import com.campusops.incident.security.CurrentUser;
+import com.campusops.incident.security.UserRole;
 import com.campusops.incident.service.SlaCalculator;
 import com.campusops.incident.service.impl.IncidentServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,8 +60,14 @@ class IncidentServiceTest {
 
     private Incident sampleIncident;
 
+    private CurrentUser student;
+
+    private CurrentUser manager;
+
     @BeforeEach
     void setUp() {
+        student = new CurrentUser("student-123", UserRole.STUDENT);
+        manager = new CurrentUser("manager-1", UserRole.MANAGER);
         sampleIncident = Incident.builder()
                 .id(1L)
                 .title("Projector not working")
@@ -97,7 +105,7 @@ class IncidentServiceTest {
             return incident;
         });
 
-        IncidentResponse response = incidentService.createIncident(request);
+        IncidentResponse response = incidentService.createIncident(request, student);
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(2L);
@@ -106,7 +114,7 @@ class IncidentServiceTest {
         assertThat(response.getStatus()).isEqualTo(IncidentStatus.OPEN);
         assertThat(response.getPriority()).isEqualTo(IncidentPriority.MEDIUM);
         assertThat(response.getAssetId()).isEqualTo("AC-204");
-        assertThat(response.getReporterId()).isEqualTo("faculty-456");
+        assertThat(response.getReporterId()).isEqualTo("student-123"); // reporter forced from JWT subject
         assertThat(response.isActive()).isTrue();
 
         ArgumentCaptor<Incident> captor = ArgumentCaptor.forClass(Incident.class);
@@ -129,7 +137,7 @@ class IncidentServiceTest {
 
         when(assetServiceClient.getAssetById("NON-EXISTENT-ASSET")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.createIncident(request))
+        assertThatThrownBy(() -> incidentService.createIncident(request, student))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Asset not found with id: NON-EXISTENT-ASSET");
     }
@@ -153,7 +161,7 @@ class IncidentServiceTest {
             return incident;
         });
 
-        incidentService.createIncident(request);
+        incidentService.createIncident(request, student);
 
         ArgumentCaptor<IncidentCreatedEvent> eventCaptor = ArgumentCaptor.forClass(IncidentCreatedEvent.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
@@ -164,7 +172,7 @@ class IncidentServiceTest {
         assertThat(event.getTitle()).isEqualTo("Broken AC");
         assertThat(event.getPriority()).isEqualTo(IncidentPriority.MEDIUM);
         assertThat(event.getAssetId()).isEqualTo("AC-204");
-        assertThat(event.getReporterId()).isEqualTo("faculty-456");
+        assertThat(event.getReporterId()).isEqualTo("student-123"); // reporter forced from JWT subject
     }
 
     @Test
@@ -180,7 +188,7 @@ class IncidentServiceTest {
 
         when(assetServiceClient.getAssetById("NON-EXISTENT-ASSET")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.createIncident(request))
+        assertThatThrownBy(() -> incidentService.createIncident(request, student))
                 .isInstanceOf(IllegalArgumentException.class);
 
         verifyNoInteractions(eventPublisher);
@@ -191,7 +199,7 @@ class IncidentServiceTest {
     void getIncidentById_shouldReturnActiveIncident() {
         when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
 
-        IncidentResponse response = incidentService.getIncidentById(1L);
+        IncidentResponse response = incidentService.getIncidentById(1L, manager);
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(1L);
@@ -205,7 +213,7 @@ class IncidentServiceTest {
     void getIncidentById_shouldThrowWhenNotFoundOrInactive() {
         when(incidentRepository.findByIdAndActiveTrue(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.getIncidentById(999L))
+        assertThatThrownBy(() -> incidentService.getIncidentById(999L, manager))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Incident not found with id: 999");
     }
@@ -215,7 +223,7 @@ class IncidentServiceTest {
     void getAllIncidents_withoutFilter_shouldReturnActiveIncidents() {
         when(incidentRepository.findByActiveTrue()).thenReturn(List.of(sampleIncident));
 
-        List<IncidentResponse> list = incidentService.getAllIncidents(null);
+        List<IncidentResponse> list = incidentService.getAllIncidents(null, manager);
 
         assertThat(list).hasSize(1);
         assertThat(list.get(0).getId()).isEqualTo(1L);
@@ -228,7 +236,7 @@ class IncidentServiceTest {
         when(incidentRepository.findByActiveTrueAndStatus(IncidentStatus.OPEN))
                 .thenReturn(List.of(sampleIncident));
 
-        List<IncidentResponse> list = incidentService.getAllIncidents(IncidentStatus.OPEN);
+        List<IncidentResponse> list = incidentService.getAllIncidents(IncidentStatus.OPEN, manager);
 
         assertThat(list).hasSize(1);
         assertThat(list.get(0).getStatus()).isEqualTo(IncidentStatus.OPEN);
@@ -250,7 +258,7 @@ class IncidentServiceTest {
                 .thenReturn(Optional.of(AssetResponseDto.builder().id("PROJ-LAB-3-V2").name("Projector V2").build()));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        IncidentResponse response = incidentService.updateIncident(1L, updateRequest);
+        IncidentResponse response = incidentService.updateIncident(1L, updateRequest, manager);
 
         assertThat(response).isNotNull();
         assertThat(response.getTitle()).isEqualTo("Updated: Projector completely dead");
@@ -275,7 +283,7 @@ class IncidentServiceTest {
 
         when(incidentRepository.findByIdAndActiveTrue(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.updateIncident(999L, updateRequest))
+        assertThatThrownBy(() -> incidentService.updateIncident(999L, updateRequest, manager))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Incident not found with id: 999");
     }
@@ -290,7 +298,7 @@ class IncidentServiceTest {
         when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        IncidentResponse response = incidentService.updateIncidentStatus(1L, request);
+        IncidentResponse response = incidentService.updateIncidentStatus(1L, request, manager);
 
         assertThat(response).isNotNull();
         assertThat(response.getStatus()).isEqualTo(IncidentStatus.ASSIGNED);
@@ -307,7 +315,7 @@ class IncidentServiceTest {
 
         when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
 
-        assertThatThrownBy(() -> incidentService.updateIncidentStatus(1L, request))
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus(1L, request, manager))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Invalid status transition from OPEN to CLOSED");
     }
@@ -376,7 +384,7 @@ class IncidentServiceTest {
 
         when(incidentRepository.findByIdAndActiveTrue(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.updateIncidentStatus(999L, request))
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus(999L, request, manager))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Incident not found with id: 999");
     }
@@ -395,7 +403,7 @@ class IncidentServiceTest {
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(slaCalculator.calculateDeadline(IncidentPriority.CRITICAL)).thenReturn(expectedDeadline);
 
-        IncidentResponse response = incidentService.createIncident(request);
+        IncidentResponse response = incidentService.createIncident(request, student);
 
         assertThat(response.getSlaDeadline()).isEqualTo(expectedDeadline);
         assertThat(response.getSlaBreachedAt()).isNull();
@@ -415,7 +423,7 @@ class IncidentServiceTest {
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(slaCalculator.calculateDeadline(IncidentPriority.CRITICAL)).thenReturn(recalculatedDeadline);
 
-        IncidentResponse response = incidentService.updateIncident(1L, updateRequest);
+        IncidentResponse response = incidentService.updateIncident(1L, updateRequest, manager);
 
         verify(incidentRepository).save(sampleIncident);
         assertThat(response.getPriority()).isEqualTo(IncidentPriority.CRITICAL);
@@ -435,11 +443,13 @@ class IncidentServiceTest {
         when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        IncidentResponse response = incidentService.updateIncident(1L, updateRequest);
+        IncidentResponse response = incidentService.updateIncident(1L, updateRequest, manager);
 
         verifyNoInteractions(slaCalculator);
         verify(incidentRepository).save(sampleIncident);
         assertThat(response.getSlaDeadline()).isEqualTo(existingDeadline);
     }
 }
+
+
 
