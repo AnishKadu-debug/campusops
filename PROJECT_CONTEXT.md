@@ -610,3 +610,70 @@ Optimize for:
 
 Understanding + Correctness + Practical Architecture +
 Maintainability + Interview Value.
+
+---
+
+# 20. Current Implementation Status (added Day 7)
+
+The sections above are the original planned architecture and roadmap.
+They are preserved as history. This section records what is actually
+implemented after Days 1–6. Where reality diverged from the original
+plan, the actual implementation wins and the divergence is noted.
+
+## Day-by-day completion
+
+- Day 1-2 (complete): Incident/Asset scaffolding, PostgreSQL/MongoDB,
+  CRUD, Eureka, OpenFeign, Resilience4j circuit breaker with fallback,
+  incident state machine enforced in the service layer.
+
+- Day 3 (complete): Kafka 4.0 KRaft producer/consumer; topics
+  incident.created.v1 and incident.assigned.v1; AFTER_COMMIT publishing
+  bridge; Notification Service (:8084, PostgreSQL) consuming events and
+  exposing notification history at GET /api/v1/notifications.
+
+- Day 4 (complete): SLA engine — priority-to-duration configuration
+  (LOW PT48H / MEDIUM PT12H / HIGH PT4H / CRITICAL PT30M), slaDeadline
+  persisted on creation and recalculated on priority change; scheduled
+  SlaBreachScanner (30s) with slaBreachedAt dedup marker;
+  incident.sla-breached.v1 topic; Notification Service consumes
+  SlaBreached into SLA_BREACHED notifications.
+
+- Day 5 (complete): JWT resource-server security (HS256 shared dev
+  secret) on Incident + Asset services; roles claim mapped to
+  ROLE_STUDENT / ROLE_TECHNICIAN / ROLE_MANAGER; ownership rules in the
+  service layer (reporter forced from JWT subject, students own-only,
+  technicians assigned-only, managers full); assignment MANAGER-only;
+  Feign interceptor propagates caller JWT to Asset Service. Dev token
+  mint utility instead of an auth server (intentional v1 scope).
+  Notification Service intentionally left unauthenticated/internal.
+
+- Day 6 (complete): full-stack Docker Compose — postgres, mongo,
+  kafka (dual listeners: kafka:9092 internal, localhost:9092 host),
+  eureka-server and all three app services from multi-stage Temurin 26
+  builds; named volumes for databases; actuator health/info on all app
+  services powering healthchecks; configuration externalized via
+  relaxed-binding env vars; host DB ports 5433/27018 avoid native
+  installations.
+
+## Notable divergences from the original plan
+
+- Notification Service is NOT registered with Eureka (it is purely
+  event-driven plus an internal REST API). The original §2 sketch was
+  neutral on this; the implementation keeps it out of discovery.
+
+- Spring Boot 4 property naming: MongoDB connection is
+  spring.mongodb.uri (env SPRING_MONGODB_URI), not
+  spring.data.mongodb.uri; Eureka client env override is
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE (no spring. prefix).
+
+- PostgreSQL enum CHECK constraints are Hibernate-generated; growing a
+  Java enum requires manually widening the constraint (happened when
+  SLA_BREACHED was added to NotificationEventType).
+
+- Tests: 123 total (incident-service 84, asset-service 28,
+  notification-service 11), plain JUnit/Mockito/Spring Boot Test
+  against local infrastructure; no Testcontainers (deferred).
+
+- Full architecture decision history lives in docs/adr/ (ADR-001 …
+  ADR-007); README documents operations; docs/demo-script.md and
+  docs/interview-prep.md support demos and interviews.
