@@ -1,20 +1,153 @@
-# CampusOps infrastructure
-# Kafka in KRaft mode (no ZooKeeper)
+# CampusOps full-stack Docker Compose (Day 6)
+# - Services communicate via Docker service names, never localhost
+# - Host ports: Eureka 8761, Incident 8082, Asset 8083, Notification 8084,
+#   Kafka 9092 (host listener), Postgres 5433->5432, Mongo 27018->27017
+#   (5433/27018 avoid clashing with native Windows PostgreSQL/MongoDB)
 services:
+  postgres:
+    image: postgres:18
+    container_name: campusops-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: PG18
+      POSTGRES_DB: campusops_incident
+    volumes:
+      # postgres:18+ requires the mount at /var/lib/postgresql (data lives in a subdirectory)
+      - campusops_postgres_data:/var/lib/postgresql
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d campusops_incident"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: campusops-mongo
+    volumes:
+      - campusops_mongo_data:/data/db
+    ports:
+      - "27018:27017"
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   kafka:
     image: apache/kafka:4.0.0
     container_name: campusops-kafka
+    hostname: kafka
+    # Dual listeners:
+    #   PLAINTEXT      kafka:9092     -> used by application containers
+    #   PLAINTEXT_HOST localhost:9092 -> host tools (mapped from container port 9094)
     ports:
-      - "9092:9092"
+      - "9092:9094"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+
+  eureka-server:
+    build: ./eureka-server
+    container_name: campusops-eureka
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8761/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 12
+
+  incident-service:
+    build: ./incident-service
+    container_name: campusops-incident
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/campusops_incident
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: PG18
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      CAMPUSOPS_SECURITY_JWT_SECRET: ${CAMPUSOPS_SECURITY_JWT_SECRET:-campusops-dev-jwt-secret-change-me-0123456789}
+      # Demo override for runtime SLA-breach verification (default matches application.properties)
+      CAMPUSOPS_SLA_DURATION_CRITICAL: ${CAMPUSOPS_SLA_DURATION_CRITICAL:-PT30M}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+
+  asset-service:
+    build: ./asset-service
+    container_name: campusops-asset
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_MONGODB_URI: mongodb://mongo:27017/campusops_asset
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      CAMPUSOPS_SECURITY_JWT_SECRET: ${CAMPUSOPS_SECURITY_JWT_SECRET:-campusops-dev-jwt-secret-change-me-0123456789}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+
+  notification-service:
+    build: ./notification-service
+    container_name: campusops-notification
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/campusops_notification
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: PG18
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8084/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+
+volumes:
+  campusops_postgres_data:
+  campusops_mongo_data:
