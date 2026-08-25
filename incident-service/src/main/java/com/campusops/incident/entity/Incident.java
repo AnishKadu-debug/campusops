@@ -14,6 +14,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "incidents")
 @Getter
@@ -49,6 +51,12 @@ public class Incident extends BaseAuditEntity {
 
     @Column(name = "assignee_id", length = 100)
     private String assigneeId;
+
+    @Column(name = "sla_deadline")
+    private Instant slaDeadline;
+
+    @Column(name = "sla_breached_at")
+    private Instant slaBreachedAt;
 
     @Column(nullable = false)
     private boolean active;

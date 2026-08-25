@@ -2,6 +2,7 @@ package com.campusops.notification.consumer;
 
 import com.campusops.notification.event.IncidentAssignedEvent;
 import com.campusops.notification.event.IncidentCreatedEvent;
+import com.campusops.notification.event.SlaBreachedEvent;
 import com.campusops.notification.service.NotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,5 +53,20 @@ class IncidentEventConsumerTest {
         consumer.onIncidentAssigned(event);
 
         verify(notificationService).recordIncidentAssigned(event);
+    }
+
+    @Test
+    @DisplayName("SlaBreached events should be routed to recordSlaBreached")
+    void onSlaBreached_shouldDelegateToService() {
+        SlaBreachedEvent event = SlaBreachedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .incidentId(41L)
+                .reporterId("student-123")
+                .build();
+
+        consumer.onSlaBreached(event);
+
+        verify(notificationService).recordSlaBreached(event);
     }
 }

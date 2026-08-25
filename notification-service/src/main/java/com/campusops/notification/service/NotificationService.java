@@ -12,5 +12,8 @@ public interface NotificationService {
     NotificationResponse recordIncidentAssigned(
             com.campusops.notification.event.IncidentAssignedEvent event);
 
+    NotificationResponse recordSlaBreached(
+            com.campusops.notification.event.SlaBreachedEvent event);
+
     List<NotificationResponse> getNotificationHistory(Long incidentId);
 }

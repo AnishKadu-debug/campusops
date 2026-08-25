@@ -5,6 +5,7 @@ import com.campusops.notification.entity.Notification;
 import com.campusops.notification.entity.NotificationEventType;
 import com.campusops.notification.event.IncidentAssignedEvent;
 import com.campusops.notification.event.IncidentCreatedEvent;
+import com.campusops.notification.event.SlaBreachedEvent;
 import com.campusops.notification.repository.NotificationRepository;
 import com.campusops.notification.service.impl.NotificationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,6 +96,38 @@ class NotificationServiceTest {
         assertThat(saved.getMessage()).contains("assigned to you");
 
         assertThat(response.getRecipientId()).isEqualTo("tech-9");
+    }
+
+    @Test
+    @DisplayName("recordSlaBreached should map event to SLA_BREACHED notification for the reporter")
+    void recordSlaBreached_shouldMapEventToNotification() {
+        SlaBreachedEvent event = SlaBreachedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .occurredAt(occurredAt)
+                .incidentId(41L)
+                .title("Projector not working")
+                .priority("HIGH")
+                .reporterId("student-123")
+                .assigneeId("tech-9")
+                .slaDeadline(occurredAt.minusSeconds(60))
+                .breachedAt(occurredAt)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        NotificationResponse response = notificationService.recordSlaBreached(event);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        Notification saved = captor.getValue();
+        assertThat(saved.getIncidentId()).isEqualTo(41L);
+        assertThat(saved.getEventType()).isEqualTo(NotificationEventType.SLA_BREACHED);
+        assertThat(saved.getRecipientId()).isEqualTo("student-123");
+        assertThat(saved.getMessage()).contains("Projector not working");
+
+        assertThat(response.getEventType()).isEqualTo(NotificationEventType.SLA_BREACHED);
+        assertThat(response.getRecipientId()).isEqualTo("student-123");
     }
 
     @Test

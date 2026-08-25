@@ -5,6 +5,7 @@ import com.campusops.notification.entity.Notification;
 import com.campusops.notification.entity.NotificationEventType;
 import com.campusops.notification.event.IncidentAssignedEvent;
 import com.campusops.notification.event.IncidentCreatedEvent;
+import com.campusops.notification.event.SlaBreachedEvent;
 import com.campusops.notification.repository.NotificationRepository;
 import com.campusops.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,18 @@ public class NotificationServiceImpl implements NotificationService {
                 .eventType(NotificationEventType.INCIDENT_ASSIGNED)
                 .recipientId(event.getAssigneeId())
                 .message("Incident '" + event.getTitle() + "' has been assigned to you.")
+                .build();
+        return NotificationResponse.fromEntity(notificationRepository.save(notification));
+    }
+
+    @Override
+    @Transactional
+    public NotificationResponse recordSlaBreached(SlaBreachedEvent event) {
+        Notification notification = Notification.builder()
+                .incidentId(event.getIncidentId())
+                .eventType(NotificationEventType.SLA_BREACHED)
+                .recipientId(event.getReporterId())
+                .message("Your incident '" + event.getTitle() + "' has breached its SLA.")
                 .build();
         return NotificationResponse.fromEntity(notificationRepository.save(notification));
     }

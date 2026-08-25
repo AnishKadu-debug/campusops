@@ -2,5 +2,6 @@ package com.campusops.notification.entity;
 
 public enum NotificationEventType {
     INCIDENT_CREATED,
-    INCIDENT_ASSIGNED
+    INCIDENT_ASSIGNED,
+    SLA_BREACHED
 }

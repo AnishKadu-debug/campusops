@@ -5,6 +5,8 @@ import com.campusops.incident.entity.IncidentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,4 +22,7 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     List<Incident> findByReporterIdAndActiveTrue(String reporterId);
 
     List<Incident> findByAssigneeIdAndActiveTrue(String assigneeId);
+
+    List<Incident> findByActiveTrueAndStatusInAndSlaDeadlineBeforeAndSlaBreachedAtIsNull(
+            Collection<IncidentStatus> statuses, Instant deadline);
 }

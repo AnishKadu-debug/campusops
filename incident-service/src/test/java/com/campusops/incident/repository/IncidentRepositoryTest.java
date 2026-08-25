@@ -4,6 +4,7 @@ import com.campusops.incident.config.KafkaTestConfig;
 import com.campusops.incident.entity.Incident;
 import com.campusops.incident.entity.IncidentPriority;
 import com.campusops.incident.entity.IncidentStatus;
+import com.campusops.incident.scheduler.SlaBreachScanner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -100,5 +102,81 @@ class IncidentRepositoryTest {
 
         List<Incident> activeList = incidentRepository.findByActiveTrue();
         assertThat(activeList).extracting(Incident::isActive).doesNotContain(false);
+    }
+
+    @Test
+    @DisplayName("breach finder should return only un-breached eligible incidents past their deadline")
+    void breachFinder_shouldReturnOnlyEligibleUnbreachedPastDeadlineIncidents() {
+        Instant pastDeadline = Instant.now().minusSeconds(60);
+        Instant futureDeadline = Instant.now().plusSeconds(3600);
+
+        Incident openBreachedEligible = openIncident("Open Past Deadline", pastDeadline, null);
+        Incident assignedBreachedEligible = Incident.builder()
+                .title("Assigned Past Deadline")
+                .description("Escalated late")
+                .status(IncidentStatus.ASSIGNED)
+                .priority(IncidentPriority.HIGH)
+                .reporterId("student-04")
+                .assigneeId("tech-1")
+                .slaDeadline(pastDeadline)
+                .active(true)
+                .build();
+        Incident inProgressBreachedEligible = Incident.builder()
+                .title("In Progress Past Deadline")
+                .description("Still being worked")
+                .status(IncidentStatus.IN_PROGRESS)
+                .priority(IncidentPriority.MEDIUM)
+                .reporterId("student-04")
+                .assigneeId("tech-2")
+                .slaDeadline(pastDeadline)
+                .active(true)
+                .build();
+
+        Incident resolvedPastDeadline = Incident.builder()
+                .title("Resolved Past Deadline")
+                .description("Resolved too late but done")
+                .status(IncidentStatus.RESOLVED)
+                .priority(IncidentPriority.HIGH)
+                .reporterId("student-04")
+                .slaDeadline(pastDeadline)
+                .active(true)
+                .build();
+
+        Incident alreadyMarkedBreached = openIncident("Already Breached", pastDeadline, Instant.now());
+
+        Incident futureDeadlineIncident = openIncident("Future Deadline", futureDeadline, null);
+
+        incidentRepository.saveAll(List.of(
+                openBreachedEligible,
+                assignedBreachedEligible,
+                inProgressBreachedEligible,
+                resolvedPastDeadline,
+                alreadyMarkedBreached,
+                futureDeadlineIncident));
+        incidentRepository.flush();
+
+        List<Incident> breached = incidentRepository
+                .findByActiveTrueAndStatusInAndSlaDeadlineBeforeAndSlaBreachedAtIsNull(
+                        SlaBreachScanner.BREACH_ELIGIBLE_STATUSES, Instant.now());
+
+        assertThat(breached)
+                .extracting(Incident::getTitle)
+                .containsExactlyInAnyOrder(
+                        "Open Past Deadline",
+                        "Assigned Past Deadline",
+                        "In Progress Past Deadline");
+    }
+
+    private Incident openIncident(String title, Instant slaDeadline, Instant slaBreachedAt) {
+        return Incident.builder()
+                .title(title)
+                .description("Breach finder test incident")
+                .status(IncidentStatus.OPEN)
+                .priority(IncidentPriority.LOW)
+                .reporterId("student-04")
+                .slaDeadline(slaDeadline)
+                .slaBreachedAt(slaBreachedAt)
+                .active(true)
+                .build();
     }
 }

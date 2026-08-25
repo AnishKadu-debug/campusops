@@ -19,4 +19,10 @@ public class KafkaTopicConfig {
             @Value("${campusops.kafka.topics.incident-assigned}") String topicName) {
         return new NewTopic(topicName, 1, (short) 1);
     }
+
+    @Bean
+    public NewTopic slaBreachedTopic(
+            @Value("${campusops.kafka.topics.sla-breached}") String topicName) {
+        return new NewTopic(topicName, 1, (short) 1);
+    }
 }

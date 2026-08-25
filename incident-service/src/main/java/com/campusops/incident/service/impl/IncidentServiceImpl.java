@@ -14,6 +14,7 @@ import com.campusops.incident.event.IncidentCreatedEvent;
 import com.campusops.incident.exception.ResourceNotFoundException;
 import com.campusops.incident.repository.IncidentRepository;
 import com.campusops.incident.service.IncidentService;
+import com.campusops.incident.service.SlaCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class IncidentServiceImpl implements IncidentService {
     private final IncidentRepository incidentRepository;
     private final AssetServiceClient assetServiceClient;
     private final ApplicationEventPublisher eventPublisher;
+    private final SlaCalculator slaCalculator;
 
     @Override
     @Transactional
@@ -50,6 +52,7 @@ public class IncidentServiceImpl implements IncidentService {
                 .assetId(request.getAssetId())
                 .reporterId(request.getReporterId())
                 .status(IncidentStatus.OPEN)
+                .slaDeadline(slaCalculator.calculateDeadline(request.getPriority()))
                 .active(true)
                 .build();
 
@@ -101,10 +104,16 @@ public class IncidentServiceImpl implements IncidentService {
             }
         }
 
+        boolean priorityChanged = incident.getPriority() != request.getPriority();
+
         incident.setTitle(request.getTitle());
         incident.setDescription(request.getDescription());
         incident.setPriority(request.getPriority());
         incident.setAssetId(request.getAssetId());
+
+        if (priorityChanged) {
+            incident.setSlaDeadline(slaCalculator.calculateDeadline(request.getPriority()));
+        }
 
         Incident updated = incidentRepository.save(incident);
         return IncidentResponse.fromEntity(updated);

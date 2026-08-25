@@ -20,6 +20,7 @@ class IncidentEventPublisherTest {
 
     private static final String CREATED_TOPIC = "incident.created.v1";
     private static final String ASSIGNED_TOPIC = "incident.assigned.v1";
+    private static final String SLA_BREACHED_TOPIC = "incident.sla-breached.v1";
 
     @Mock
     private KafkaTemplate<String, Object> kafkaTemplate;
@@ -28,7 +29,7 @@ class IncidentEventPublisherTest {
 
     @BeforeEach
     void setUp() {
-        publisher = new IncidentEventPublisher(kafkaTemplate, CREATED_TOPIC, ASSIGNED_TOPIC);
+        publisher = new IncidentEventPublisher(kafkaTemplate, CREATED_TOPIC, ASSIGNED_TOPIC, SLA_BREACHED_TOPIC);
     }
 
     @Test
@@ -62,6 +63,22 @@ class IncidentEventPublisherTest {
     }
 
     @Test
+    @DisplayName("onSlaBreached should send event to incident.sla-breached.v1 keyed by incident id")
+    void onSlaBreached_shouldSendToSlaBreachedTopicKeyedByIncidentId() {
+        SlaBreachedEvent event = SlaBreachedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .incidentId(42L)
+                .reporterId("student-123")
+                .breachedAt(Instant.now())
+                .build();
+
+        publisher.onSlaBreached(event);
+
+        verify(kafkaTemplate).send(eq(SLA_BREACHED_TOPIC), eq("42"), eq(event));
+    }
+
+    @Test
     @DisplayName("events should carry a non-null envelope (eventId, occurredAt)")
     void events_shouldCarryEnvelope() {
         Instant now = Instant.now();
@@ -70,8 +87,15 @@ class IncidentEventPublisherTest {
                 .occurredAt(now)
                 .incidentId(1L)
                 .build();
+        SlaBreachedEvent breached = SlaBreachedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .occurredAt(now)
+                .incidentId(1L)
+                .build();
 
         assertThat(created.getEventId()).isNotNull();
         assertThat(created.getOccurredAt()).isEqualTo(now);
+        assertThat(breached.getEventId()).isNotNull();
+        assertThat(breached.getOccurredAt()).isEqualTo(now);
     }
 }

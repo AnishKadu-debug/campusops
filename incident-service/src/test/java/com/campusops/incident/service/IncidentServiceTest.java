@@ -14,6 +14,7 @@ import com.campusops.incident.event.IncidentAssignedEvent;
 import com.campusops.incident.event.IncidentCreatedEvent;
 import com.campusops.incident.exception.ResourceNotFoundException;
 import com.campusops.incident.repository.IncidentRepository;
+import com.campusops.incident.service.SlaCalculator;
 import com.campusops.incident.service.impl.IncidentServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -48,6 +50,9 @@ class IncidentServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private SlaCalculator slaCalculator;
+
     @InjectMocks
     private IncidentServiceImpl incidentService;
 
@@ -63,6 +68,7 @@ class IncidentServiceTest {
                 .priority(IncidentPriority.HIGH)
                 .assetId("PROJ-LAB-3")
                 .reporterId("student-123")
+                .slaDeadline(Instant.now().plus(Duration.ofHours(4)))
                 .active(true)
                 .build();
         sampleIncident.setCreatedAt(Instant.now());
@@ -373,6 +379,67 @@ class IncidentServiceTest {
         assertThatThrownBy(() -> incidentService.updateIncidentStatus(999L, request))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Incident not found with id: 999");
+    }
+
+    @Test
+    @DisplayName("createIncident should set the SLA deadline using the configured priority duration")
+    void createIncident_shouldSetSlaDeadlineFromCalculator() {
+        Instant expectedDeadline = Instant.now().plus(Duration.ofMinutes(30));
+        CreateIncidentRequest request = CreateIncidentRequest.builder()
+                .title("Broken AC")
+                .description("AC unit leaking water in Room 204")
+                .priority(IncidentPriority.CRITICAL)
+                .reporterId("faculty-456")
+                .build();
+
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(slaCalculator.calculateDeadline(IncidentPriority.CRITICAL)).thenReturn(expectedDeadline);
+
+        IncidentResponse response = incidentService.createIncident(request);
+
+        assertThat(response.getSlaDeadline()).isEqualTo(expectedDeadline);
+        assertThat(response.getSlaBreachedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("updateIncident with changed priority should recalculate the SLA deadline")
+    void updateIncident_priorityChanged_shouldRecalculateDeadline() {
+        Instant recalculatedDeadline = Instant.now().plus(Duration.ofMinutes(30));
+        UpdateIncidentRequest updateRequest = UpdateIncidentRequest.builder()
+                .title("Escalated: Projector completely dead")
+                .description("Lamp burned out completely")
+                .priority(IncidentPriority.CRITICAL) // sampleIncident is HIGH
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(slaCalculator.calculateDeadline(IncidentPriority.CRITICAL)).thenReturn(recalculatedDeadline);
+
+        IncidentResponse response = incidentService.updateIncident(1L, updateRequest);
+
+        verify(incidentRepository).save(sampleIncident);
+        assertThat(response.getPriority()).isEqualTo(IncidentPriority.CRITICAL);
+        assertThat(response.getSlaDeadline()).isEqualTo(recalculatedDeadline);
+    }
+
+    @Test
+    @DisplayName("updateIncident with unchanged priority should keep the existing SLA deadline")
+    void updateIncident_samePriority_shouldKeepExistingDeadline() {
+        Instant existingDeadline = sampleIncident.getSlaDeadline();
+        UpdateIncidentRequest updateRequest = UpdateIncidentRequest.builder()
+                .title("Updated: Projector completely dead")
+                .description("Lamp burned out completely")
+                .priority(IncidentPriority.HIGH) // same as sampleIncident
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        IncidentResponse response = incidentService.updateIncident(1L, updateRequest);
+
+        verifyNoInteractions(slaCalculator);
+        verify(incidentRepository).save(sampleIncident);
+        assertThat(response.getSlaDeadline()).isEqualTo(existingDeadline);
     }
 }
 

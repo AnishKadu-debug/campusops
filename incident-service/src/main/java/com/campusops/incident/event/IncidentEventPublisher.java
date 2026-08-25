@@ -14,14 +14,17 @@ public class IncidentEventPublisher {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final String incidentCreatedTopic;
     private final String incidentAssignedTopic;
+    private final String slaBreachedTopic;
 
     public IncidentEventPublisher(
             KafkaTemplate<String, Object> kafkaTemplate,
             @Value("${campusops.kafka.topics.incident-created}") String incidentCreatedTopic,
-            @Value("${campusops.kafka.topics.incident-assigned}") String incidentAssignedTopic) {
+            @Value("${campusops.kafka.topics.incident-assigned}") String incidentAssignedTopic,
+            @Value("${campusops.kafka.topics.sla-breached}") String slaBreachedTopic) {
         this.kafkaTemplate = kafkaTemplate;
         this.incidentCreatedTopic = incidentCreatedTopic;
         this.incidentAssignedTopic = incidentAssignedTopic;
+        this.slaBreachedTopic = slaBreachedTopic;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -36,5 +39,12 @@ public class IncidentEventPublisher {
         kafkaTemplate.send(incidentAssignedTopic, event.getIncidentId().toString(), event);
         log.info("Published {} to {} for incident {}", event.getClass().getSimpleName(),
                 incidentAssignedTopic, event.getIncidentId());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onSlaBreached(SlaBreachedEvent event) {
+        kafkaTemplate.send(slaBreachedTopic, event.getIncidentId().toString(), event);
+        log.info("Published {} to {} for incident {}", event.getClass().getSimpleName(),
+                slaBreachedTopic, event.getIncidentId());
     }
 }

@@ -24,6 +24,8 @@ public class IncidentResponse {
     private String assetId;
     private String reporterId;
     private String assigneeId;
+    private Instant slaDeadline;
+    private Instant slaBreachedAt;
     private boolean active;
     private Instant createdAt;
     private Instant updatedAt;
@@ -41,6 +43,8 @@ public class IncidentResponse {
                 .assetId(incident.getAssetId())
                 .reporterId(incident.getReporterId())
                 .assigneeId(incident.getAssigneeId())
+                .slaDeadline(incident.getSlaDeadline())
+                .slaBreachedAt(incident.getSlaBreachedAt())
                 .active(incident.isActive())
                 .createdAt(incident.getCreatedAt())
                 .updatedAt(incident.getUpdatedAt())
