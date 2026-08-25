@@ -1,5 +1,6 @@
 package com.campusops.incident.service;
 
+import com.campusops.incident.dto.request.AssignIncidentRequest;
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
@@ -19,4 +20,6 @@ public interface IncidentService {
     IncidentResponse updateIncident(Long id, UpdateIncidentRequest request);
 
     IncidentResponse updateIncidentStatus(Long id, UpdateIncidentStatusRequest request);
+
+    IncidentResponse assignIncident(Long id, AssignIncidentRequest request);
 }

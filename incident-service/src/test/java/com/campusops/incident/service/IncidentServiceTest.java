@@ -2,6 +2,7 @@ package com.campusops.incident.service;
 
 import com.campusops.incident.client.AssetServiceClient;
 import com.campusops.incident.client.dto.AssetResponseDto;
+import com.campusops.incident.dto.request.AssignIncidentRequest;
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
@@ -9,6 +10,8 @@ import com.campusops.incident.dto.response.IncidentResponse;
 import com.campusops.incident.entity.Incident;
 import com.campusops.incident.entity.IncidentPriority;
 import com.campusops.incident.entity.IncidentStatus;
+import com.campusops.incident.event.IncidentAssignedEvent;
+import com.campusops.incident.event.IncidentCreatedEvent;
 import com.campusops.incident.exception.ResourceNotFoundException;
 import com.campusops.incident.repository.IncidentRepository;
 import com.campusops.incident.service.impl.IncidentServiceImpl;
@@ -20,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,6 +44,9 @@ class IncidentServiceTest {
 
     @Mock
     private AssetServiceClient assetServiceClient;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private IncidentServiceImpl incidentService;
@@ -118,6 +126,58 @@ class IncidentServiceTest {
         assertThatThrownBy(() -> incidentService.createIncident(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Asset not found with id: NON-EXISTENT-ASSET");
+    }
+
+    @Test
+    @DisplayName("createIncident should publish IncidentCreatedEvent with saved incident data")
+    void createIncident_shouldPublishIncidentCreatedEvent() {
+        CreateIncidentRequest request = CreateIncidentRequest.builder()
+                .title("Broken AC")
+                .description("AC unit leaking water in Room 204")
+                .priority(IncidentPriority.MEDIUM)
+                .assetId("AC-204")
+                .reporterId("faculty-456")
+                .build();
+
+        when(assetServiceClient.getAssetById("AC-204"))
+                .thenReturn(Optional.of(AssetResponseDto.builder().id("AC-204").name("AC Unit").build()));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> {
+            Incident incident = invocation.getArgument(0);
+            incident.setId(7L);
+            return incident;
+        });
+
+        incidentService.createIncident(request);
+
+        ArgumentCaptor<IncidentCreatedEvent> eventCaptor = ArgumentCaptor.forClass(IncidentCreatedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        IncidentCreatedEvent event = eventCaptor.getValue();
+        assertThat(event.getEventId()).isNotNull();
+        assertThat(event.getOccurredAt()).isNotNull();
+        assertThat(event.getIncidentId()).isEqualTo(7L);
+        assertThat(event.getTitle()).isEqualTo("Broken AC");
+        assertThat(event.getPriority()).isEqualTo(IncidentPriority.MEDIUM);
+        assertThat(event.getAssetId()).isEqualTo("AC-204");
+        assertThat(event.getReporterId()).isEqualTo("faculty-456");
+    }
+
+    @Test
+    @DisplayName("createIncident with invalid asset should not publish any event")
+    void createIncident_withInvalidAsset_shouldNotPublishEvent() {
+        CreateIncidentRequest request = CreateIncidentRequest.builder()
+                .title("Broken AC")
+                .description("AC unit leaking water")
+                .priority(IncidentPriority.MEDIUM)
+                .assetId("NON-EXISTENT-ASSET")
+                .reporterId("faculty-456")
+                .build();
+
+        when(assetServiceClient.getAssetById("NON-EXISTENT-ASSET")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> incidentService.createIncident(request))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -244,6 +304,61 @@ class IncidentServiceTest {
         assertThatThrownBy(() -> incidentService.updateIncidentStatus(1L, request))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Invalid status transition from OPEN to CLOSED");
+    }
+
+    @Test
+    @DisplayName("assignIncident should persist assignment and publish IncidentAssignedEvent")
+    void assignIncident_shouldPersistAndPublishEvent() {
+        AssignIncidentRequest request = AssignIncidentRequest.builder()
+                .assigneeId("tech-9")
+                .build();
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        IncidentResponse response = incidentService.assignIncident(1L, request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(IncidentStatus.ASSIGNED);
+        assertThat(response.getAssigneeId()).isEqualTo("tech-9");
+        verify(incidentRepository).save(sampleIncident);
+
+        ArgumentCaptor<IncidentAssignedEvent> eventCaptor = ArgumentCaptor.forClass(IncidentAssignedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        IncidentAssignedEvent event = eventCaptor.getValue();
+        assertThat(event.getEventId()).isNotNull();
+        assertThat(event.getOccurredAt()).isNotNull();
+        assertThat(event.getIncidentId()).isEqualTo(1L);
+        assertThat(event.getTitle()).isEqualTo("Projector not working");
+        assertThat(event.getAssigneeId()).isEqualTo("tech-9");
+    }
+
+    @Test
+    @DisplayName("assignIncident should reject invalid transition and not publish an event")
+    void assignIncident_invalidTransition_shouldRejectWithoutEvent() {
+        sampleIncident.setStatus(IncidentStatus.ASSIGNED); // ASSIGNED -> ASSIGNED is invalid
+
+        when(incidentRepository.findByIdAndActiveTrue(1L)).thenReturn(Optional.of(sampleIncident));
+        AssignIncidentRequest request = AssignIncidentRequest.builder().assigneeId("tech-9").build();
+
+        assertThatThrownBy(() -> incidentService.assignIncident(1L, request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid status transition from ASSIGNED to ASSIGNED");
+
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
+    @DisplayName("assignIncident should throw ResourceNotFoundException when incident does not exist")
+    void assignIncident_notFound_shouldThrowResourceNotFoundException() {
+        when(incidentRepository.findByIdAndActiveTrue(999L)).thenReturn(Optional.empty());
+        AssignIncidentRequest request = AssignIncidentRequest.builder().assigneeId("tech-9").build();
+
+        assertThatThrownBy(() -> incidentService.assignIncident(999L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Incident not found with id: 999");
+
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test

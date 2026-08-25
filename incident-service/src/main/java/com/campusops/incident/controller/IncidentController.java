@@ -1,5 +1,6 @@
 package com.campusops.incident.controller;
 
+import com.campusops.incident.dto.request.AssignIncidentRequest;
 import com.campusops.incident.dto.request.CreateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentRequest;
 import com.campusops.incident.dto.request.UpdateIncidentStatusRequest;
@@ -61,6 +62,14 @@ public class IncidentController {
             @PathVariable("id") Long id,
             @Valid @RequestBody UpdateIncidentStatusRequest request) {
         IncidentResponse response = incidentService.updateIncidentStatus(id, request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{id}/assign")
+    public ResponseEntity<IncidentResponse> assignIncident(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody AssignIncidentRequest request) {
+        IncidentResponse response = incidentService.assignIncident(id, request);
         return ResponseEntity.ok(response);
     }
 }
