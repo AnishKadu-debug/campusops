@@ -148,6 +148,19 @@ services:
       start_period: 60s
       retries: 12
 
+  frontend:
+    build: ./frontend
+    container_name: campusops-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      incident-service:
+        condition: service_healthy
+      asset-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+
 volumes:
   campusops_postgres_data:
   campusops_mongo_data:
